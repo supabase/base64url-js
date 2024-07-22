@@ -76,3 +76,46 @@ for (let byte of buffer) {
 
 const string = result.join("");
 ```
+
+### Uint8Array and Base64-URL
+
+To convert a [Uint8Array](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array) to Base64-URL:
+
+```typescript
+import { byteToBase64URL } from "./base64url";
+
+let bytes: Uint8Array;
+
+const result: string[] = [];
+const state = { queue: 0, queuedBits: 0 };
+
+const onChar = (char: string) => {
+  result.push(char);
+};
+
+bytes.map((byte) => byteToBase64URL(byte, state, onChar));
+
+// always call with `null` after processing all bytes
+byteToBase64URL(null, state, onChar);
+
+const string = result.join("");
+```
+
+To convert Base64-URL to a [Uint8Array](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array):
+
+```typescript
+import { byteFromBase64URL } from "./base64url";
+
+const result: number[] = [];
+const state = { queue: 0, queuedBits: 0 };
+
+const onByte = (byte: number) => {
+  result.push(byte);
+};
+
+for (let i = 0; i < string.length; i += 1) {
+  byteFromBase64URL(string.charCodeAt(i), state, onByte);
+}
+
+const bytes = new Uint8Array(result);
+```

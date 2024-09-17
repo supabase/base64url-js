@@ -40,6 +40,72 @@ const FROM_BASE64URL = (() => {
 })();
 
 /**
+ * Converts a byte to a Base64-URL string.
+ *
+ * @param byte The byte to convert, or null to flush at the end of the byte sequence.
+ * @param state The Base64 conversion state. Pass an initial value of `{ queue: 0, queuedBits: 0 }`.
+ * @param emit A function called with the next Base64 character when ready.
+ */
+export function byteToBase64URL(
+  byte: number | null,
+  state: { queue: number; queuedBits: number },
+  emit: (char: string) => void,
+) {
+  if (byte !== null) {
+    state.queue = (state.queue << 8) | byte;
+    state.queuedBits += 8;
+
+    while (state.queuedBits >= 6) {
+      const pos = (state.queue >> (state.queuedBits - 6)) & 63;
+      emit(TO_BASE64URL[pos]);
+      state.queuedBits -= 6;
+    }
+  } else if (state.queuedBits > 0) {
+    state.queue = state.queue << (6 - state.queuedBits);
+    state.queuedBits = 6;
+
+    while (state.queuedBits >= 6) {
+      const pos = (state.queue >> (state.queuedBits - 6)) & 63;
+      emit(TO_BASE64URL[pos]);
+      state.queuedBits -= 6;
+    }
+  }
+}
+
+/**
+ * Converts a String char code (extracted using `string.charCodeAt(position)`) to a sequence of Base64-URL characters.
+ *
+ * @param charCode The char code of the JavaScript string.
+ * @param state The Base64 state. Pass an initial value of `{ queue: 0, queuedBits: 0 }`.
+ * @param emit A function called with the next byte.
+ */
+export function byteFromBase64URL(
+  charCode: number,
+  state: { queue: number; queuedBits: number },
+  emit: (byte: number) => void,
+) {
+  const bits = FROM_BASE64URL[charCode];
+
+  if (bits > -1) {
+    // valid Base64-URL character
+    state.queue = (state.queue << 6) | bits;
+    state.queuedBits += 6;
+
+    while (state.queuedBits >= 8) {
+      emit((state.queue >> (state.queuedBits - 8)) & 0xff);
+      state.queuedBits -= 8;
+    }
+  } else if (bits === -2) {
+    // ignore spaces, tabs, newlines, =
+    return;
+  } else {
+    throw new Error(
+      `Invalid Base64-URL character "${String.fromCharCode(charCode)}"`,
+    );
+  }
+}
+
+/**
  * Converts a JavaScript string (which may include any valid character) into a
  * Base64-URL encoded string. The string is first encoded in UTF-8 which is
  * then encoded as Base64-URL.
@@ -49,32 +115,17 @@ const FROM_BASE64URL = (() => {
 export function stringToBase64URL(str: string) {
   const base64: string[] = [];
 
-  let queue = 0;
-  let queuedBits = 0;
-
-  const emitter = (byte: number) => {
-    queue = (queue << 8) | byte;
-    queuedBits += 8;
-
-    while (queuedBits >= 6) {
-      const pos = (queue >> (queuedBits - 6)) & 63;
-      base64.push(TO_BASE64URL[pos]);
-      queuedBits -= 6;
-    }
+  const emitter = (char: string) => {
+    base64.push(char);
   };
 
-  stringToUTF8(str, emitter);
+  const state = { queue: 0, queuedBits: 0 };
 
-  if (queuedBits > 0) {
-    queue = queue << (6 - queuedBits);
-    queuedBits = 6;
+  stringToUTF8(str, (byte: number) => {
+    byteToBase64URL(byte, state, emitter);
+  });
 
-    while (queuedBits >= 6) {
-      const pos = (queue >> (queuedBits - 6)) & 63;
-      base64.push(TO_BASE64URL[pos]);
-      queuedBits -= 6;
-    }
-  }
+  byteToBase64URL(null, state, emitter);
 
   return base64.join("");
 }
@@ -88,39 +139,23 @@ export function stringToBase64URL(str: string) {
 export function stringFromBase64URL(str: string) {
   const conv: string[] = [];
 
-  const emit = (codepoint: number) => {
+  const utf8Emit = (codepoint: number) => {
     conv.push(String.fromCodePoint(codepoint));
   };
 
-  const state = {
+  const utf8State = {
     utf8seq: 0,
     codepoint: 0,
   };
 
-  let queue = 0;
-  let queuedBits = 0;
+  const b64State = { queue: 0, queuedBits: 0 };
+
+  const byteEmit = (byte: number) => {
+    stringFromUTF8(byte, utf8State, utf8Emit);
+  };
 
   for (let i = 0; i < str.length; i += 1) {
-    const codepoint = str.charCodeAt(i);
-    const bits = FROM_BASE64URL[codepoint];
-
-    if (bits > -1) {
-      // valid Base64-URL character
-      queue = (queue << 6) | bits;
-      queuedBits += 6;
-
-      while (queuedBits >= 8) {
-        stringFromUTF8((queue >> (queuedBits - 8)) & 0xff, state, emit);
-        queuedBits -= 8;
-      }
-    } else if (bits === -2) {
-      // ignore spaces, tabs, newlines, =
-      continue;
-    } else {
-      throw new Error(
-        `Invalid Base64-URL character "${str.at(i)}" at position ${i}`,
-      );
-    }
+    byteFromBase64URL(str.charCodeAt(i), b64State, byteEmit);
   }
 
   return conv.join("");

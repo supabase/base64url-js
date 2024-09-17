@@ -41,7 +41,7 @@ describe("stringFromBase64URL", () => {
   test("decode with invalid Base64-URL character", () => {
     expect(() => {
       stringFromBase64URL("*");
-    }).toThrow(new Error(`Invalid Base64-URL character "*" at position 0`));
+    }).toThrow(new Error(`Invalid Base64-URL character "*"`));
   });
 });
 
